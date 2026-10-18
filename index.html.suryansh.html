@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Audio Player</title>
+<style>
+  :root{--bg:#1f1a14;--card:#2e2820;--accent:#f5b83d;--text:#f1e9dc;--muted:#a89f90;--line:#5a4d3a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;padding:16px 16px 190px}
+  input[type=search]{width:100%;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:16px}
+  h2{margin:28px 0 10px;font-weight:500}
+  .chips{display:flex;flex-wrap:wrap;gap:10px}
+  .chip{border:1px solid var(--line);border-radius:22px;padding:12px 18px;background:none;color:var(--text);font-size:15px}
+  .chip small{display:block;color:var(--muted);margin-top:4px}
+  .chip.active{border-color:var(--accent);color:var(--accent)}
+  .track{display:flex;gap:12px;align-items:center;background:var(--card);border-radius:16px;padding:12px;margin:10px 0}
+  .track img{width:56px;height:56px;border-radius:10px;object-fit:cover;background:#444}
+  .track .t{flex:1}
+  .track .t b{display:block}
+  .track .t span{color:var(--muted);font-size:13px}
+  button.icon{background:none;border:none;color:var(--text);font-size:22px;padding:8px}
+  #mini{position:fixed;left:12px;right:12px;bottom:70px;background:#54432a;border-radius:20px;padding:10px 14px}
+  #mini .row{display:flex;align-items:center;gap:10px}
+  #mini .title{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  #seek{width:100%;accent-color:var(--accent);margin:6px 0 0}
+  nav{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:space-around;background:#1a1611;padding:12px}
+  nav button{background:none;border:none;color:var(--muted);font-size:24px;padding:8px 18px;border-radius:20px}
+  nav button.on{color:var(--text);background:#54432a}
+  .hide{display:none}
+  #bgpanel{position:fixed;left:12px;right:12px;bottom:158px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+  #bgpanel select,#bgpanel input[type=range]{width:100%;margin-top:8px}
+  #bgpanel select{padding:10px;border-radius:10px;background:#1f1a14;color:var(--text);border:1px solid var(--line);font-size:15px}
+  #bgpanel input[type=range]{accent-color:var(--accent)}
+  #bgpanel label{display:block;margin-top:12px;color:var(--muted);font-size:13px}
+  #bgtoggle{margin-top:8px;padding:10px 16px;border-radius:12px;border:1px solid var(--accent);background:none;color:var(--accent);font-size:15px}
+  #bgtoggle.on{background:var(--accent);color:#1f1a14}
+</style>
+</head>
+<body>
+
+<input type="search" id="q" placeholder="Search">
+
+<div id="view-home">
+  <h2>Discover</h2>
+  <div class="chips" id="chips"></div>
+  <h2>Continue listening</h2>
+  <div id="continue"></div>
+</div>
+<div id="view-all" class="hide"><h2>All tracks</h2><div id="list"></div></div>
+<div id="view-saved" class="hide"><h2>Saved</h2><div id="saved"></div></div>
+
+<div id="mini">
+  <div class="row">
+    <div class="title" id="mtitle">Nothing playing</div>
+    <button class="icon" id="back">⏪</button>
+    <button class="icon" id="play">▶</button>
+    <button class="icon" id="bgbtn">🎶</button>
+    <button class="icon" id="bm">🔖</button>
+  </div>
+  <input type="range" id="seek" min="0" max="100" value="0">
+</div>
+
+<nav>
+  <button data-v="home" class="on">🏠</button>
+  <button data-v="all">🎵</button>
+  <button data-v="saved">🔖</button>
+</nav>
+
+<div id="bgpanel" class="hide">
+  <b>Background music</b>
+  <label>Choose music</label>
+  <select id="bgsel"></select>
+  <label>Volume</label>
+  <input type="range" id="bgvol" min="0" max="100" value="25">
+  <button id="bgtoggle">Turn on</button>
+</div>
+
+<audio id="audio" preload="metadata"></audio>
+<audio id="bgaudio" loop></audio>
+
+<script>
+/* ====== EDIT THIS LIST ======
+   1. Put your mp3 files in the "audio" folder of the repo.
+   2. Add one line per file below. (cover is optional)               */
+const TRACKS = [
+  {title:"Mahabharat Stories", artist:"B. R. Chopra", theme:"Mahabharat", src:"Mahabharat-Stories-B-R-Chopra-EP.MP3", cover:""},
+];
+
+/* ====== BACKGROUND MUSIC LIST ======
+   Upload your background mp3 to the repo and add one line per file. */
+const BG = [
+  {title:"Soft Background Music", src:"background.mp3"},
+];
+/* ============================ */
+
+const $ = id => document.getElementById(id);
+const audio = $('audio');
+let cur = -1, filterTheme = null;
+const store = {
+  get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}},
+  set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))
+};
+let saved = store.get('saved',[]);
+let progress = store.get('progress',{});   // {src: seconds}
+let last = store.get('last',null);
+
+function row(t,i){
+  const d=document.createElement('div'); d.className='track';
+  d.innerHTML=`<img src="${t.cover||''}" alt=""><div class="t"><b>${t.title}</b><span>${t.artist||''}</span></div>`;
+  d.onclick=()=>load(i,true); return d;
+}
+function render(){
+  const q=$('q').value.toLowerCase();
+  const themes=[...new Set(TRACKS.map(t=>t.theme).filter(Boolean))];
+  $('chips').innerHTML='';
+  themes.forEach(th=>{
+    const n=TRACKS.filter(t=>t.theme===th).length;
+    const b=document.createElement('button'); b.className='chip'+(filterTheme===th?' active':'');
+    b.innerHTML=`${th}<small>${n} tracks</small>`;
+    b.onclick=()=>{filterTheme=filterTheme===th?null:th;render();show('all')};
+    $('chips').appendChild(b);
+  });
+  $('list').innerHTML='';
+  TRACKS.forEach((t,i)=>{
+    if(q&&!(t.title+t.artist).toLowerCase().includes(q))return;
+    if(filterTheme&&t.theme!==filterTheme)return;
+    $('list').appendChild(row(t,i));
+  });
+  $('saved').innerHTML='';
+  saved.forEach(s=>{const i=TRACKS.findIndex(t=>t.src===s); if(i>=0)$('saved').appendChild(row(TRACKS[i],i));});
+  $('continue').innerHTML='';
+  if(last!==null&&TRACKS[last]) $('continue').appendChild(row(TRACKS[last],last));
+}
+function show(v){
+  ['home','all','saved'].forEach(x=>$('view-'+x).classList.toggle('hide',x!==v));
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.v));
+$('q').oninput=()=>{render();show('all')};
+
+function load(i,play){
+  cur=i; const t=TRACKS[i];
+  audio.src=t.src; $('mtitle').textContent=t.title;
+  audio.currentTime=progress[t.src]||0;
+  last=i; store.set('last',i);
+  if('mediaSession' in navigator){
+    navigator.mediaSession.metadata=new MediaMetadata({title:t.title,artist:t.artist||'',artwork:t.cover?[{src:t.cover}]:[]});
+    navigator.mediaSession.setActionHandler('play',()=>audio.play());
+    navigator.mediaSession.setActionHandler('pause',()=>audio.pause());
+    navigator.mediaSession.setActionHandler('seekbackward',()=>audio.currentTime-=10);
+    navigator.mediaSession.setActionHandler('seekforward',()=>audio.currentTime+=10);
+    navigator.mediaSession.setActionHandler('nexttrack',()=>load((cur+1)%TRACKS.length,true));
+    navigator.mediaSession.setActionHandler('previoustrack',()=>load((cur-1+TRACKS.length)%TRACKS.length,true));
+  }
+  if(play) audio.play();
+}
+$('play').onclick=()=>{ if(cur<0&&TRACKS.length)return load(last??0,true); audio.paused?audio.play():audio.pause(); };
+$('back').onclick=()=>audio.currentTime=Math.max(0,audio.currentTime-10);
+$('bm').onclick=()=>{
+  if(cur<0)return; const s=TRACKS[cur].src;
+  saved=saved.includes(s)?saved.filter(x=>x!==s):[...saved,s]; store.set('saved',saved); render();
+};
+/* ---- background music ---- */
+const bg = $('bgaudio');
+let bgOn = store.get('bgOn',false);
+bg.volume = (store.get('bgVol',25))/100;
+$('bgvol').value = store.get('bgVol',25);
+BG.forEach((b,i)=>{const o=document.createElement('option');o.value=i;o.textContent=b.title;$('bgsel').appendChild(o);});
+$('bgsel').value = store.get('bgIdx',0);
+function bgLoad(){ const b=BG[$('bgsel').value]; if(b&&!bg.src.endsWith(encodeURI(b.src))) bg.src=b.src; }
+function bgUpdate(){
+  $('bgtoggle').textContent = bgOn?'Turn off':'Turn on';
+  $('bgtoggle').classList.toggle('on',bgOn);
+  $('bgbtn').style.opacity = bgOn?1:.5;
+  store.set('bgOn',bgOn);
+}
+$('bgbtn').onclick=()=>$('bgpanel').classList.toggle('hide');
+$('bgtoggle').onclick=()=>{
+  bgOn=!bgOn; bgUpdate();
+  if(bgOn){bgLoad(); bg.play().catch(()=>{});} else bg.pause();
+};
+$('bgsel').onchange=()=>{store.set('bgIdx',$('bgsel').value); bgLoad(); if(bgOn)bg.play().catch(()=>{});};
+$('bgvol').oninput=e=>{bg.volume=e.target.value/100; store.set('bgVol',+e.target.value);};
+bgUpdate();
+
+audio.onplay=()=>{$('play').textContent='⏸'; if(bgOn){bgLoad(); bg.play().catch(()=>{});}};
+audio.onpause=()=>{$('play').textContent='▶'; bg.pause();};
+audio.onended=()=>load((cur+1)%TRACKS.length,true);   // auto-play next = continuous background music
+audio.ontimeupdate=()=>{
+  if(audio.duration)$('seek').value=audio.currentTime/audio.duration*100;
+  if(cur>=0){progress[TRACKS[cur].src]=audio.currentTime; store.set('progress',progress);}
+};
+$('seek').oninput=e=>{if(audio.duration)audio.currentTime=e.target.value/100*audio.duration};
+render();
+</script>
+</body>
+</html>
