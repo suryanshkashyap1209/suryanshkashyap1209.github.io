@@ -28,6 +28,13 @@
   nav button{background:none;border:none;color:var(--muted);font-size:24px;padding:8px 18px;border-radius:20px}
   nav button.on{color:var(--text);background:#54432a}
   .hide{display:none}
+  #bgpanel{position:fixed;left:12px;right:12px;bottom:158px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+  #bgpanel select,#bgpanel input[type=range]{width:100%;margin-top:8px}
+  #bgpanel select{padding:10px;border-radius:10px;background:#1f1a14;color:var(--text);border:1px solid var(--line);font-size:15px}
+  #bgpanel input[type=range]{accent-color:var(--accent)}
+  #bgpanel label{display:block;margin-top:12px;color:var(--muted);font-size:13px}
+  #bgtoggle{margin-top:8px;padding:10px 16px;border-radius:12px;border:1px solid var(--accent);background:none;color:var(--accent);font-size:15px}
+  #bgtoggle.on{background:var(--accent);color:#1f1a14}
 </style>
 </head>
 <body>
@@ -48,6 +55,7 @@
     <div class="title" id="mtitle">Nothing playing</div>
     <button class="icon" id="back">⏪</button>
     <button class="icon" id="play">▶</button>
+    <button class="icon" id="bgbtn">🎶</button>
     <button class="icon" id="bm">🔖</button>
   </div>
   <input type="range" id="seek" min="0" max="100" value="0">
@@ -59,7 +67,17 @@
   <button data-v="saved">🔖</button>
 </nav>
 
+<div id="bgpanel" class="hide">
+  <b>Background music</b>
+  <label>Choose music</label>
+  <select id="bgsel"></select>
+  <label>Volume</label>
+  <input type="range" id="bgvol" min="0" max="100" value="25">
+  <button id="bgtoggle">Turn on</button>
+</div>
+
 <audio id="audio" preload="metadata"></audio>
+<audio id="bgaudio" loop></audio>
 
 <script>
 /* ====== EDIT THIS LIST ======
@@ -67,6 +85,12 @@
    2. Add one line per file below. (cover is optional)               */
 const TRACKS = [
   {title:"Mahabharat Stories", artist:"B. R. Chopra", theme:"Mahabharat", src:"Mahabharat-Stories-B-R-Chopra-EP.MP3", cover:""},
+];
+
+/* ====== BACKGROUND MUSIC LIST ======
+   Upload your background mp3 to the repo and add one line per file. */
+const BG = [
+  {title:"Quantum Mechanics", src:"Quantum Mechanics.mp3"},
 ];
 /* ============================ */
 
@@ -137,8 +161,31 @@ $('bm').onclick=()=>{
   if(cur<0)return; const s=TRACKS[cur].src;
   saved=saved.includes(s)?saved.filter(x=>x!==s):[...saved,s]; store.set('saved',saved); render();
 };
-audio.onplay=()=>$('play').textContent='⏸';
-audio.onpause=()=>$('play').textContent='▶';
+/* ---- background music ---- */
+const bg = $('bgaudio');
+let bgOn = store.get('bgOn',false);
+bg.volume = (store.get('bgVol',25))/100;
+$('bgvol').value = store.get('bgVol',25);
+BG.forEach((b,i)=>{const o=document.createElement('option');o.value=i;o.textContent=b.title;$('bgsel').appendChild(o);});
+$('bgsel').value = store.get('bgIdx',0);
+function bgLoad(){ const b=BG[$('bgsel').value]; if(b&&!bg.src.endsWith(encodeURI(b.src))) bg.src=b.src; }
+function bgUpdate(){
+  $('bgtoggle').textContent = bgOn?'Turn off':'Turn on';
+  $('bgtoggle').classList.toggle('on',bgOn);
+  $('bgbtn').style.opacity = bgOn?1:.5;
+  store.set('bgOn',bgOn);
+}
+$('bgbtn').onclick=()=>$('bgpanel').classList.toggle('hide');
+$('bgtoggle').onclick=()=>{
+  bgOn=!bgOn; bgUpdate();
+  if(bgOn){bgLoad(); bg.play().catch(()=>{});} else bg.pause();
+};
+$('bgsel').onchange=()=>{store.set('bgIdx',$('bgsel').value); bgLoad(); if(bgOn)bg.play().catch(()=>{});};
+$('bgvol').oninput=e=>{bg.volume=e.target.value/100; store.set('bgVol',+e.target.value);};
+bgUpdate();
+
+audio.onplay=()=>{$('play').textContent='⏸'; if(bgOn){bgLoad(); bg.play().catch(()=>{});}};
+audio.onpause=()=>{$('play').textContent='▶'; bg.pause();};
 audio.onended=()=>load((cur+1)%TRACKS.length,true);   // auto-play next = continuous background music
 audio.ontimeupdate=()=>{
   if(audio.duration)$('seek').value=audio.currentTime/audio.duration*100;
